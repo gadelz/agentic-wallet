@@ -22,6 +22,13 @@ const ConfigSchema = z.object({
   KEY_ENCRYPTION_SECRET: z.string().min(16).default('dev-secret-change-in-production'),
   ADMIN_API_KEY: z.string().min(8).default('dev-admin-key-change-in-production'),
 
+  // Key custody backend: 'local' (AES-256-GCM, dev) or 'vault-transit' (production)
+  KEY_STORE_BACKEND: z.enum(['local', 'vault-transit']).default('local'),
+  VAULT_ADDR: z.string().default(''),
+  VAULT_TOKEN: z.string().default(''),
+  VAULT_TRANSIT_MOUNT: z.string().default('transit'),
+  VAULT_TRANSIT_KEY_NAME: z.string().default('agentic-wallet'),
+
   // CORS
   CORS_ORIGINS: z.string().default(''),
 
@@ -61,6 +68,17 @@ export function getConfig(): Config {
   if (result.data.SOLANA_NETWORK === 'mainnet-beta') {
     throw new Error(
       'This system is designed for devnet only. Mainnet is not supported for safety.'
+    );
+  }
+
+  // Fail-closed: production custody backend must be fully configured.
+  if (
+    result.data.KEY_STORE_BACKEND === 'vault-transit' &&
+    (!result.data.VAULT_ADDR || !result.data.VAULT_TOKEN)
+  ) {
+    throw new Error(
+      'KEY_STORE_BACKEND=vault-transit requires VAULT_ADDR and VAULT_TOKEN. ' +
+        'Refusing to start without a configured production custody backend.'
     );
   }
 

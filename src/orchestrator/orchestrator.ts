@@ -122,7 +122,7 @@ export class Orchestrator {
     }
 
     // Create wallet for agent
-    const walletResult = this.walletManager.createWallet(config.name);
+    const walletResult = await this.walletManager.createWallet(config.name);
     if (!walletResult.ok) {
       return failure(walletResult.error);
     }
@@ -138,7 +138,7 @@ export class Orchestrator {
 
     if (!agentResult.ok) {
       // Clean up wallet if agent creation fails
-      this.walletManager.deleteWallet(wallet.id);
+      await this.walletManager.deleteWallet(wallet.id);
       return failure(agentResult.error);
     }
 
@@ -624,7 +624,7 @@ export class Orchestrator {
     }
 
     // Sign transaction
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) {
       this.updateTransactionFailed(txRecord.id, signResult.error.message);
       return;
@@ -755,7 +755,7 @@ export class Orchestrator {
     }
 
     // Sign
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) {
       this.updateTransactionFailed(txRecord.id, signResult.error.message);
       return;

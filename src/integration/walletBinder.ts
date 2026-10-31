@@ -69,7 +69,7 @@ export class WalletBinder {
    * Create a new wallet and bind it to the given external agent.
    * This is typically called immediately after registration.
    */
-  bindNewWallet(agentId: string): Result<WalletBindingResult, Error> {
+  async bindNewWallet(agentId: string): Promise<Result<WalletBindingResult, Error>> {
     // Verify agent exists
     const agentResult = this.registry.getAgent(agentId);
     if (!agentResult.ok) {
@@ -85,8 +85,8 @@ export class WalletBinder {
       );
     }
 
-    // Create wallet via existing manager (key generation + encryption inside)
-    const walletResult = this.walletManager.createWallet(`byoa:${agent.name}`);
+    // Create wallet via existing manager (key generation + custody inside)
+    const walletResult = await this.walletManager.createWallet(`byoa:${agent.name}`);
     if (!walletResult.ok) {
       logger.error('Failed to create wallet for external agent', {
         agentId,
@@ -101,7 +101,7 @@ export class WalletBinder {
     const bindResult = this.registry.bindWallet(agentId, wallet.id, wallet.publicKey);
     if (!bindResult.ok) {
       // Best-effort cleanup — delete the orphan wallet
-      this.walletManager.deleteWallet(wallet.id);
+      await this.walletManager.deleteWallet(wallet.id);
       return failure(bindResult.error);
     }
 

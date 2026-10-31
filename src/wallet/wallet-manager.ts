@@ -10,7 +10,6 @@
  */
 
 import { Keypair, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
-import { v4 as uuidv4 } from 'uuid';
 import {
   WalletInfo,
   InternalWallet,
@@ -21,14 +20,15 @@ import {
   DEFAULT_POLICY,
   Intent,
 } from '../utils/types.js';
-import { encrypt, decrypt, generateSecureId } from '../utils/encryption.js';
+import { generateSecureId } from '../utils/encryption.js';
 import {
-  getConfig,
   ESTIMATED_SOL_TRANSFER_FEE,
   ESTIMATED_TOKEN_TRANSFER_FEE,
 } from '../utils/config.js';
 import { createLogger } from '../utils/logger.js';
 import { saveState, loadState } from '../utils/store.js';
+import type { KeyStore } from './keystore/types.js';
+import { getKeyStore } from './keystore/factory.js';
 
 const logger = createLogger('WALLET');
 
@@ -37,18 +37,21 @@ const logger = createLogger('WALLET');
  *
  * This class provides a strict API boundary:
  * - Public methods return only public information
- * - Private keys never leave this class
+ * - Private keys never leave the KeyStore boundary
  * - All signing happens internally
+ *
+ * Key custody is delegated to a pluggable KeyStore (local AES-256-GCM for
+ * devnet, Vault Transit for production). WalletManager never sees the raw
+ * secret key except for the moment of signing.
  */
 export class WalletManager {
   private wallets: Map<string, InternalWallet> = new Map();
   private policies: Map<string, Policy> = new Map();
   private dailyTransfers: Map<string, number> = new Map();
-  private encryptionSecret: string;
+  private keyStore: KeyStore;
 
-  constructor() {
-    const config = getConfig();
-    this.encryptionSecret = config.KEY_ENCRYPTION_SECRET;
+  constructor(keyStore?: KeyStore) {
+    this.keyStore = keyStore ?? getKeyStore();
     this.loadFromStore();
     // Reset daily counters at midnight
     this.scheduleDailyReset();
@@ -72,18 +75,18 @@ export class WalletManager {
   /**
    * Create a new wallet with encrypted key storage
    */
-  createWallet(label?: string): Result<WalletInfo, Error> {
+  async createWallet(label?: string): Promise<Result<WalletInfo, Error>> {
     try {
       const keypair = Keypair.generate();
       const walletId = generateSecureId('wallet');
 
-      // Encrypt the secret key immediately
-      const encryptedSecretKey = encrypt(keypair.secretKey, this.encryptionSecret);
+      // Hand the secret key to the KeyStore for custody (never stored raw).
+      const keyRef = await this.keyStore.wrap(walletId, keypair.secretKey);
 
       const wallet: InternalWallet = {
         id: walletId,
         publicKey: keypair.publicKey.toBase58(),
-        encryptedSecretKey,
+        keyRef,
         createdAt: new Date(),
         label,
       };
@@ -148,12 +151,12 @@ export class WalletManager {
    * Sign a transaction
    *
    * SECURITY: This is the only place where private keys are decrypted.
-   * The key is decrypted, used to sign, and then discarded.
+   * The key is retrieved from the KeyStore, used to sign, and then discarded.
    */
-  signTransaction(
+  async signTransaction(
     walletId: string,
     transaction: Transaction | VersionedTransaction
-  ): Result<Transaction | VersionedTransaction, Error> {
+  ): Promise<Result<Transaction | VersionedTransaction, Error>> {
     const wallet = this.wallets.get(walletId);
 
     if (!wallet) {
@@ -161,8 +164,8 @@ export class WalletManager {
     }
 
     try {
-      // Decrypt the secret key momentarily
-      const secretKey = decrypt(wallet.encryptedSecretKey, this.encryptionSecret);
+      // Retrieve the secret key momentarily (from the custody backend)
+      const secretKey = await this.keyStore.unwrap(walletId, wallet.keyRef);
       const keypair = Keypair.fromSecretKey(secretKey);
 
       // Sign the transaction
@@ -349,11 +352,22 @@ export class WalletManager {
   }
 
   /**
-   * Delete a wallet (removes from memory)
+   * Delete a wallet (removes from memory and from the custody backend)
    */
-  deleteWallet(walletId: string): Result<true, Error> {
-    if (!this.wallets.has(walletId)) {
+  async deleteWallet(walletId: string): Promise<Result<true, Error>> {
+    const wallet = this.wallets.get(walletId);
+
+    if (!wallet) {
       return failure(new Error(`Wallet not found: ${walletId}`));
+    }
+
+    try {
+      await this.keyStore.delete(walletId, wallet.keyRef);
+    } catch (error) {
+      logger.warn('KeyStore delete failed (continuing with local removal)', {
+        walletId,
+        error: String(error),
+      });
     }
 
     this.wallets.delete(walletId);

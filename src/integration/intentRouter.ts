@@ -359,7 +359,7 @@ export class IntentRouter {
     if (!txResult.ok) throw txResult.error;
 
     // Sign via wallet layer (only place keys are touched)
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee
@@ -476,7 +476,7 @@ export class IntentRouter {
     if (!txResult.ok) throw txResult.error;
 
     // Sign
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee
@@ -651,7 +651,7 @@ export class IntentRouter {
     );
     if (!txResult.ok) throw txResult.error;
 
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee
@@ -743,7 +743,7 @@ export class IntentRouter {
     );
     if (!txResult.ok) throw txResult.error;
 
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee
@@ -824,7 +824,7 @@ export class IntentRouter {
     if (!txResult.ok) throw txResult.error;
 
     // Sign via wallet layer
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee
@@ -910,7 +910,7 @@ export class IntentRouter {
       programs: invokedPrograms,
     });
 
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee
@@ -979,7 +979,7 @@ export class IntentRouter {
     const txResult = await buildArbitraryTransaction(pubkeyResult.value, instructions, memo);
     if (!txResult.ok) throw txResult.error;
 
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee
@@ -1061,7 +1061,7 @@ export class IntentRouter {
     const txResult = await buildArbitraryTransaction(pubkeyResult.value, instructions, memo);
     if (!txResult.ok) throw txResult.error;
 
-    const signResult = this.walletManager.signTransaction(walletId, txResult.value);
+    const signResult = await this.walletManager.signTransaction(walletId, txResult.value);
     if (!signResult.ok) throw signResult.error;
 
     // Simulate before sending to catch errors pre-fee

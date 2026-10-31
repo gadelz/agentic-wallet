@@ -744,7 +744,7 @@ app.post('/api/byoa/register', requireAdminAuth, async (req: Request, res: Respo
     const { agentId, controlToken } = regResult.value;
 
     // 2. Create and bind a wallet
-    const bindResult = binder.bindNewWallet(agentId);
+    const bindResult = await binder.bindNewWallet(agentId);
     if (!bindResult.ok) {
       // Clean up the registration
       registry.revokeAgent(agentId);

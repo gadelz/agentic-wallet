@@ -42,11 +42,13 @@ export interface TokenBalance {
 
 /**
  * Internal wallet representation - NEVER expose secretKey
+ * `keyRef` is an opaque backend-specific reference produced by the KeyStore
+ * (e.g. `local:<id>` or a Vault ciphertext blob). It is safe to persist.
  */
 export interface InternalWallet {
   readonly id: string;
   readonly publicKey: string;
-  readonly encryptedSecretKey: string;
+  readonly keyRef: string;
   readonly createdAt: Date;
   readonly label?: string;
 }

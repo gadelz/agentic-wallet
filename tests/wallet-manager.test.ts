@@ -11,6 +11,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../src/utils/config.js', () => ({
   getConfig: () => ({
     KEY_ENCRYPTION_SECRET: 'test-secret-at-least-16-characters',
+    KEY_STORE_BACKEND: 'local',
+    VAULT_ADDR: '',
+    VAULT_TOKEN: '',
+    VAULT_TRANSIT_MOUNT: 'transit',
+    VAULT_TRANSIT_KEY_NAME: 'agentic-wallet',
     SOLANA_RPC_URL: 'https://api.devnet.solana.com',
     SOLANA_NETWORK: 'devnet',
     PORT: 3001,
@@ -44,8 +49,8 @@ describe('WalletManager', () => {
   });
 
   describe('createWallet', () => {
-    it('creates a wallet with a valid public key', () => {
-      const result = wm.createWallet('test-wallet');
+    it('creates a wallet with a valid public key', async () => {
+      const result = await wm.createWallet('test-wallet');
       expect(result.ok).toBe(true);
       if (!result.ok) return;
 
@@ -56,27 +61,29 @@ describe('WalletManager', () => {
       expect(() => new PublicKey(info.publicKey)).not.toThrow();
     });
 
-    it('creates wallets with unique IDs', () => {
-      const a = wm.createWallet('w1');
-      const b = wm.createWallet('w2');
+    it('creates wallets with unique IDs', async () => {
+      const a = await wm.createWallet('w1');
+      const b = await wm.createWallet('w2');
       expect(a.ok && b.ok).toBe(true);
       if (!a.ok || !b.ok) return;
       expect(a.value.id).not.toBe(b.value.id);
       expect(a.value.publicKey).not.toBe(b.value.publicKey);
     });
 
-    it('never exposes the encrypted secret key', () => {
-      const result = wm.createWallet('visible');
+    it('never exposes the secret key or key reference', async () => {
+      const result = await wm.createWallet('visible');
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      // WalletInfo should not contain encryptedSecretKey
+      // WalletInfo should not contain secretKey or keyRef
       expect((result.value as any).encryptedSecretKey).toBeUndefined();
+      expect((result.value as any).keyRef).toBeUndefined();
+      expect((result.value as any).secretKey).toBeUndefined();
     });
   });
 
   describe('getPublicKey', () => {
-    it('returns a PublicKey for a known wallet', () => {
-      const cr = wm.createWallet('pk-test');
+    it('returns a PublicKey for a known wallet', async () => {
+      const cr = await wm.createWallet('pk-test');
       expect(cr.ok).toBe(true);
       if (!cr.ok) return;
 
@@ -95,7 +102,7 @@ describe('WalletManager', () => {
 
   describe('signTransaction', () => {
     it('signs a transaction successfully', async () => {
-      const cr = wm.createWallet('sign-test');
+      const cr = await wm.createWallet('sign-test');
       expect(cr.ok).toBe(true);
       if (!cr.ok) return;
 
@@ -113,27 +120,27 @@ describe('WalletManager', () => {
       tx.recentBlockhash = 'GHtXQBSoZsSaMmmFwpEhCbyUhHR9xACrKS9gHsV5A5Bj';
       tx.feePayer = pkResult.value;
 
-      const signResult = wm.signTransaction(cr.value.id, tx);
+      const signResult = await wm.signTransaction(cr.value.id, tx);
       expect(signResult.ok).toBe(true);
       if (!signResult.ok) return;
       // The signed transaction should have at least one signature
       expect(signResult.value.signatures.length).toBeGreaterThan(0);
     });
 
-    it('fails for an unknown wallet', () => {
+    it('fails for an unknown wallet', async () => {
       const tx = new Transaction();
-      const result = wm.signTransaction('nonexistent', tx);
+      const result = await wm.signTransaction('nonexistent', tx);
       expect(result.ok).toBe(false);
     });
   });
 
   describe('deleteWallet', () => {
-    it('removes a wallet', () => {
-      const cr = wm.createWallet('delete-me');
+    it('removes a wallet', async () => {
+      const cr = await wm.createWallet('delete-me');
       expect(cr.ok).toBe(true);
       if (!cr.ok) return;
 
-      const delResult = wm.deleteWallet(cr.value.id);
+      const delResult = await wm.deleteWallet(cr.value.id);
       expect(delResult.ok).toBe(true);
 
       // Should no longer exist
@@ -143,8 +150,8 @@ describe('WalletManager', () => {
   });
 
   describe('policy validation', () => {
-    it('rejects a transfer exceeding maxTransferAmount', () => {
-      const cr = wm.createWallet('policy-test');
+    it('rejects a transfer exceeding maxTransferAmount', async () => {
+      const cr = await wm.createWallet('policy-test');
       expect(cr.ok).toBe(true);
       if (!cr.ok) return;
 
@@ -161,8 +168,8 @@ describe('WalletManager', () => {
       expect(result.ok).toBe(false);
     });
 
-    it('accepts a valid small transfer', () => {
-      const cr = wm.createWallet('valid-tx');
+    it('accepts a valid small transfer', async () => {
+      const cr = await wm.createWallet('valid-tx');
       expect(cr.ok).toBe(true);
       if (!cr.ok) return;
 
