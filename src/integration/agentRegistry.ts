@@ -39,6 +39,8 @@ export interface ExternalAgentRegistration {
   readonly agentEndpoint?: string; // Required for remote agents
   readonly supportedIntents: SupportedIntentType[];
   readonly metadata?: Record<string, unknown>;
+  /** Multi-tenant SaaS: the tenant that owns this agent (isolation boundary). */
+  readonly tenantId?: string;
 }
 
 export interface ExternalAgentRecord {
@@ -54,6 +56,8 @@ export interface ExternalAgentRecord {
   readonly createdAt: Date;
   readonly lastActiveAt?: Date;
   readonly metadata?: Record<string, unknown>;
+  /** Multi-tenant SaaS: owning tenant (isolation boundary). */
+  readonly tenantId?: string;
 }
 
 /** Public-safe view (no token hash) */
@@ -69,6 +73,8 @@ export interface ExternalAgentInfo {
   readonly createdAt: Date;
   readonly lastActiveAt?: Date;
   readonly metadata?: Record<string, unknown>;
+  /** Multi-tenant SaaS: owning tenant (isolation boundary). */
+  readonly tenantId?: string;
 }
 
 export interface RegistrationResult {
@@ -239,6 +245,7 @@ export class AgentRegistry {
       controlTokenHash,
       createdAt: new Date(),
       metadata: reg.metadata,
+      tenantId: reg.tenantId,
     };
 
     this.agents.set(agentId, record);
@@ -318,6 +325,14 @@ export class AgentRegistry {
 
   getActiveAgents(): ExternalAgentInfo[] {
     return this.getAllAgents().filter((a) => a.status === 'active');
+  }
+
+  /**
+   * Multi-tenant isolation: return only the agents owned by `tenantId`.
+   * A tenant can never see another tenant's agents.
+   */
+  getAgentsForTenant(tenantId: string): ExternalAgentInfo[] {
+    return this.getAllAgents().filter((a) => a.tenantId === tenantId);
   }
 
   // ── Lifecycle ────────────────────────────
@@ -406,6 +421,7 @@ export class AgentRegistry {
       createdAt: record.createdAt,
       lastActiveAt: record.lastActiveAt,
       metadata: record.metadata,
+      tenantId: record.tenantId,
     };
   }
 }

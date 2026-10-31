@@ -29,6 +29,12 @@ const ConfigSchema = z.object({
   VAULT_TRANSIT_MOUNT: z.string().default('transit'),
   VAULT_TRANSIT_KEY_NAME: z.string().default('agentic-wallet'),
 
+  // Multi-tenant SaaS
+  TENANT_SECRET: z.string().min(16).default('dev-tenant-secret-change-me-1234'),
+  STRIPE_SECRET_KEY: z.string().default(''),
+  STRIPE_BASE_URL: z.string().default(''),
+  STRIPE_API_VERSION: z.string().default('2024-06-20'),
+
   // CORS
   CORS_ORIGINS: z.string().default(''),
 

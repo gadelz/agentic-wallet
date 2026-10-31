@@ -25,6 +25,8 @@ import {
   SupportedIntentType,
 } from './integration/index.js';
 import { getStrategyRegistry } from './agent/strategy-registry.js';
+import { getTenantRegistry, TenantRecord } from './tenant/index.js';
+import { StripeClient, BillingService } from './billing/index.js';
 
 const logger = createLogger('API');
 
@@ -814,6 +816,22 @@ app.post('/api/byoa/intents', async (req: Request, res: Response) => {
       return;
     }
 
+    // Multi-tenant metering: if the submitting agent belongs to a tenant,
+    // enforce the plan's daily intent cap (402) and meter the submission.
+    const agentAuth = getAgentRegistry().authenticateToken(token);
+    if (agentAuth.ok && agentAuth.value.tenantId) {
+      const tenantId = agentAuth.value.tenantId;
+      if (!tenantRegistry.canUse(tenantId, 'intent_submitted')) {
+        res.status(402).json({
+          success: false,
+          error: 'Daily intent limit reached for tenant. Upgrade your plan.',
+          timestamp: new Date(),
+        });
+        return;
+      }
+      tenantRegistry.recordUsage(tenantId, 'intent_submitted');
+    }
+
     const router = getIntentRouter();
     const result = await router.submitIntent(token, validation.data as ExternalIntent);
 
@@ -1217,6 +1235,270 @@ function setupWebSocket(port: number): void {
 
   logger.info('WebSocket server started', { port });
 }
+
+// ============================================
+// MULTI-TENANT SAAS LAYER
+// ============================================
+//
+// Tenants authenticate with `X-Tenant-Key` (a hashed API key), are metered on
+// plan limits, and are isolated: a tenant only ever sees its OWN agents.
+// Metered usage can be flushed to Stripe for usage-based billing (dry-run when
+// no STRIPE_SECRET_KEY is configured).
+
+const tenantRegistry = getTenantRegistry(config.TENANT_SECRET);
+const stripeClient = new StripeClient({
+  secretKey: config.STRIPE_SECRET_KEY,
+  baseUrl: config.STRIPE_BASE_URL || undefined,
+  apiVersion: config.STRIPE_API_VERSION,
+});
+const billingService = new BillingService(tenantRegistry, stripeClient);
+
+type AuthedRequest = Request & { tenant?: TenantRecord };
+
+/** Require a valid tenant API key and meter the request. */
+function requireTenantAuth(req: Request, res: Response, next: NextFunction): void {
+  const key = req.headers['x-tenant-key'];
+  if (!key || typeof key !== 'string') {
+    res.status(401).json({
+      success: false,
+      error: 'Missing or invalid X-Tenant-Key header',
+      timestamp: new Date(),
+    });
+    return;
+  }
+  const result = tenantRegistry.authenticate(key);
+  if (!result.ok) {
+    res.status(401).json({
+      success: false,
+      error: result.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+  (req as AuthedRequest).tenant = result.value;
+  // Meter every authenticated tenant request (bounded by plan limits).
+  tenantRegistry.recordUsage(result.value.id, 'api_request');
+  next();
+}
+
+// ── Admin: tenant CRUD ─────────────────────────────
+
+const CreateTenantSchema = z.object({
+  name: z.string().min(1).max(100),
+  plan: z.enum(['free', 'starter', 'pro', 'enterprise']).default('free'),
+  stripeCustomerId: z.string().optional(),
+  stripeSubscriptionId: z.string().optional(),
+  stripeSubscriptionItemId: z.string().optional(),
+});
+
+// Create a tenant (admin only). The API key is returned ONCE.
+app.post('/api/tenants', requireAdminAuth, (req: Request, res: Response) => {
+  const validation = CreateTenantSchema.safeParse(req.body);
+  if (!validation.success) {
+    res.status(400).json({
+      success: false,
+      error: validation.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+  const data = validation.data;
+  const result = tenantRegistry.createTenant(data.name, data.plan, {
+    stripeCustomerId: data.stripeCustomerId,
+    stripeSubscriptionId: data.stripeSubscriptionId,
+    stripeSubscriptionItemId: data.stripeSubscriptionItemId,
+  });
+  if (!result.ok) {
+    res.status(400).json({
+      success: false,
+      error: result.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+  logger.info('Tenant created', { tenantId: result.value.tenantId, name: data.name });
+  res.status(201).json({
+    success: true,
+    data: {
+      tenantId: result.value.tenantId,
+      apiKey: result.value.apiKey,
+      message: 'Store the apiKey securely. It will NOT be shown again.',
+    },
+    timestamp: new Date(),
+  });
+});
+
+// List tenants (admin only).
+app.get('/api/tenants', requireAdminAuth, (_req: Request, res: Response) => {
+  res.json({ success: true, data: tenantRegistry.listTenants(), timestamp: new Date() });
+});
+
+// Rotate a tenant API key (admin only).
+app.post('/api/tenants/:id/rotate-key', requireAdminAuth, (req: Request, res: Response) => {
+  const id = req.params['id'] ?? '';
+  const result = tenantRegistry.rotateApiKey(id);
+  if (!result.ok) {
+    res.status(404).json({
+      success: false,
+      error: result.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+  res.json({
+    success: true,
+    data: { apiKey: result.value, message: 'The old key no longer works.' },
+    timestamp: new Date(),
+  });
+});
+
+// Suspend / activate a tenant (admin only).
+app.post('/api/tenants/:id/suspend', requireAdminAuth, (req: Request, res: Response) => {
+  const id = req.params['id'] ?? '';
+  const result = tenantRegistry.setStatus(id, 'suspended');
+  if (!result.ok) {
+    res.status(404).json({ success: false, error: result.error.message, timestamp: new Date() });
+    return;
+  }
+  res.json({ success: true, data: { status: 'suspended' }, timestamp: new Date() });
+});
+
+app.post('/api/tenants/:id/activate', requireAdminAuth, (req: Request, res: Response) => {
+  const id = req.params['id'] ?? '';
+  const result = tenantRegistry.setStatus(id, 'active');
+  if (!result.ok) {
+    res.status(404).json({ success: false, error: result.error.message, timestamp: new Date() });
+    return;
+  }
+  res.json({ success: true, data: { status: 'active' }, timestamp: new Date() });
+});
+
+// ── Tenant-scoped (isolated) endpoints ─────────────
+
+// Own tenant info + usage vs. plan limits.
+app.get('/api/tenants/me', requireTenantAuth, (req: Request, res: Response) => {
+  const tenant = (req as AuthedRequest).tenant!;
+  const usage = tenantRegistry.getUsage(tenant.id);
+  res.json({
+    success: true,
+    data: {
+      id: tenant.id,
+      name: tenant.name,
+      plan: tenant.plan,
+      status: tenant.status,
+      stripeCustomerId: tenant.stripeCustomerId,
+      stripeSubscriptionId: tenant.stripeSubscriptionId,
+      createdAt: tenant.createdAt,
+      usage: usage?.usage,
+      limits: usage?.limits,
+    },
+    timestamp: new Date(),
+  });
+});
+
+// Usage summary (windowed + lifetime + billing watermarks).
+app.get('/api/tenants/me/usage', requireTenantAuth, (req: Request, res: Response) => {
+  const tenant = (req as AuthedRequest).tenant!;
+  const usage = tenantRegistry.getUsage(tenant.id);
+  if (!usage) {
+    res.status(404).json({ success: false, error: 'Usage not found', timestamp: new Date() });
+    return;
+  }
+  res.json({ success: true, data: usage, timestamp: new Date() });
+});
+
+// ISOLATION: a tenant only sees its own agents.
+app.get('/api/tenants/me/agents', requireTenantAuth, (req: Request, res: Response) => {
+  const tenant = (req as AuthedRequest).tenant!;
+  const agents = getAgentRegistry().getAgentsForTenant(tenant.id);
+  res.json({ success: true, data: agents, timestamp: new Date() });
+});
+
+// Tenant-scoped agent registration. Stamps tenantId (isolation), enforces the
+// plan's agent cap (402 when exceeded), and meters the creation.
+app.post('/api/tenants/me/agents', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenant = (req as AuthedRequest).tenant!;
+  const validation = RegisterAgentSchema.safeParse(req.body);
+  if (!validation.success) {
+    res.status(400).json({
+      success: false,
+      error: validation.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+  const data = validation.data;
+
+  if (!tenantRegistry.canUse(tenant.id, 'agent_created')) {
+    res.status(402).json({
+      success: false,
+      error: 'Plan agent limit reached. Upgrade your plan to add more agents.',
+      timestamp: new Date(),
+    });
+    return;
+  }
+
+  const registry = getAgentRegistry();
+  const binder = getWalletBinder();
+
+  const regResult = registry.register({
+    agentName: data.agentName,
+    agentType: data.agentType,
+    agentEndpoint: data.agentEndpoint,
+    supportedIntents: data.supportedIntents as SupportedIntentType[],
+    metadata: data.metadata,
+    tenantId: tenant.id,
+  });
+
+  if (!regResult.ok) {
+    res.status(400).json({
+      success: false,
+      error: regResult.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+
+  const { agentId, controlToken } = regResult.value;
+  const bindResult = await binder.bindNewWallet(agentId);
+  if (!bindResult.ok) {
+    registry.revokeAgent(agentId);
+    res.status(500).json({
+      success: false,
+      error: bindResult.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+
+  tenantRegistry.recordUsage(tenant.id, 'agent_created');
+
+  logger.info('Tenant-scoped BYOA agent registered', {
+    tenantId: tenant.id,
+    agentId,
+    agentName: data.agentName,
+  });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      agentId,
+      controlToken,
+      walletId: bindResult.value.walletId,
+      walletPublicKey: bindResult.value.walletPublicKey,
+      tenantId: tenant.id,
+      message: 'Store the controlToken securely. It will NOT be shown again.',
+    },
+    timestamp: new Date(),
+  });
+});
+
+// Flush metered usage to Stripe (dry-run without STRIPE_SECRET_KEY).
+app.post('/api/tenants/me/usage/flush', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenant = (req as AuthedRequest).tenant!;
+  const result = await billingService.flushUsage(tenant.id);
+  res.json({ success: true, data: result, timestamp: new Date() });
+});
 
 // ============================================
 // SERVER STARTUP
