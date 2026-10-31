@@ -27,6 +27,7 @@ import {
 import { getStrategyRegistry } from './agent/strategy-registry.js';
 import { getTenantRegistry, TenantRecord } from './tenant/index.js';
 import { StripeClient, BillingService } from './billing/index.js';
+import { getAgentMemory, getTriggerEngine } from './triggers/index.js';
 
 const logger = createLogger('API');
 
@@ -1498,6 +1499,69 @@ app.post('/api/tenants/me/usage/flush', requireTenantAuth, async (req: Request, 
   const tenant = (req as AuthedRequest).tenant!;
   const result = await billingService.flushUsage(tenant.id);
   res.json({ success: true, data: result, timestamp: new Date() });
+});
+
+// ============================================
+// AGENT MEMORY + EVENT TRIGGERS (automation)
+// ============================================
+
+const triggerEngine = getTriggerEngine();
+
+// List registered triggers with their fire state (admin).
+app.get('/api/triggers', requireAdminAuth, (_req: Request, res: Response) => {
+  res.json({ success: true, data: triggerEngine.list(), timestamp: new Date() });
+});
+
+// Enable / disable a trigger (admin).
+app.post('/api/triggers/:id/enable', requireAdminAuth, (req: Request, res: Response) => {
+  const id = req.params['id'] ?? '';
+  const result = triggerEngine.setEnabled(id, true);
+  if (!result.ok) {
+    res.status(404).json({ success: false, error: result.error.message, timestamp: new Date() });
+    return;
+  }
+  res.json({ success: true, data: { id, enabled: true }, timestamp: new Date() });
+});
+
+app.post('/api/triggers/:id/disable', requireAdminAuth, (req: Request, res: Response) => {
+  const id = req.params['id'] ?? '';
+  const result = triggerEngine.setEnabled(id, false);
+  if (!result.ok) {
+    res.status(404).json({ success: false, error: result.error.message, timestamp: new Date() });
+    return;
+  }
+  res.json({ success: true, data: { id, enabled: false }, timestamp: new Date() });
+});
+
+// Read an agent's persistent memory (admin).
+app.get('/api/agents/:id/memory', requireAdminAuth, (req: Request, res: Response) => {
+  const agentId = req.params['id'] ?? '';
+  const memory = getAgentMemory().list(agentId);
+  res.json({ success: true, data: { agentId, memory }, timestamp: new Date() });
+});
+
+// Write an agent's memory key (admin).
+app.post('/api/agents/:id/memory', requireAdminAuth, (req: Request, res: Response) => {
+  const agentId = req.params['id'] ?? '';
+  const schema = z.object({
+    key: z.string().min(1).max(200),
+    value: z.unknown(),
+    ttlMs: z.number().int().positive().optional(),
+  });
+  const validation = schema.safeParse(req.body);
+  if (!validation.success) {
+    res.status(400).json({ success: false, error: validation.error.message, timestamp: new Date() });
+    return;
+  }
+  getAgentMemory().set(agentId, validation.data.key, validation.data.value, validation.data.ttlMs);
+  res.json({ success: true, data: { agentId, key: validation.data.key }, timestamp: new Date() });
+});
+
+// Clear an agent's memory (admin).
+app.post('/api/agents/:id/memory/clear', requireAdminAuth, (req: Request, res: Response) => {
+  const agentId = req.params['id'] ?? '';
+  getAgentMemory().clearAgent(agentId);
+  res.json({ success: true, data: { agentId, cleared: true }, timestamp: new Date() });
 });
 
 // ============================================
