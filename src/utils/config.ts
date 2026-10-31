@@ -13,6 +13,12 @@ const ConfigSchema = z.object({
   // Solana
   SOLANA_RPC_URL: z.string().url().default('https://api.devnet.solana.com'),
   SOLANA_NETWORK: z.enum(['devnet', 'testnet', 'mainnet-beta']).default('devnet'),
+  RPC_COMMITMENT: z.enum(['processed', 'confirmed', 'finalized']).default('confirmed'),
+  // Mainnet is gated behind an explicit opt-in + a private RPC (fail-closed).
+  ALLOW_MAINNET: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
 
   // Server
   PORT: z.coerce.number().int().positive().default(3001),
@@ -70,11 +76,10 @@ export function getConfig(): Config {
     throw new Error(`Invalid configuration:\n${errors.join('\n')}`);
   }
 
-  // Validate network constraints
-  if (result.data.SOLANA_NETWORK === 'mainnet-beta') {
-    throw new Error(
-      'This system is designed for devnet only. Mainnet is not supported for safety.'
-    );
+  // Validate network constraints (mainnet is gated behind an opt-in).
+  const networkError = validateNetworkSafety(result.data);
+  if (networkError) {
+    throw new Error(networkError);
   }
 
   // Fail-closed: production custody backend must be fully configured.
@@ -125,6 +130,39 @@ export function getConfig(): Config {
  */
 export function isDevelopment(): boolean {
   return process.env['NODE_ENV'] !== 'production';
+}
+
+/**
+ * Validate network safety constraints.
+ *
+ * Mainnet is gated behind an explicit opt-in AND a private RPC URL. This is
+ * fail-closed: mainnet refuses to start unless BOTH are configured, because
+ * signing on mainnet with a public/devnet RPC is a real-funds risk.
+ *
+ * Pure function (no env/global access) so it is directly unit-testable.
+ */
+export function validateNetworkSafety(cfg: {
+  SOLANA_NETWORK: string;
+  SOLANA_RPC_URL: string;
+  ALLOW_MAINNET: boolean;
+}): string | null {
+  if (cfg.SOLANA_NETWORK !== 'mainnet-beta') {
+    return null;
+  }
+  if (!cfg.ALLOW_MAINNET) {
+    return (
+      'Mainnet is not enabled. To enable it, set ALLOW_MAINNET=true AND provide ' +
+      'a private SOLANA_RPC_URL (Helius/QuickNode/Triton).'
+    );
+  }
+  const isDevnetDefault = cfg.SOLANA_RPC_URL === 'https://api.devnet.solana.com';
+  if (!cfg.SOLANA_RPC_URL || isDevnetDefault) {
+    return (
+      'Mainnet requires a private SOLANA_RPC_URL. Refusing to use the default ' +
+      'devnet RPC on mainnet (would risk sending mainnet transactions to devnet).'
+    );
+  }
+  return null;
 }
 
 // ── Fee constants ───────────────────────────────────────────

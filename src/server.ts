@@ -9,7 +9,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import { z } from 'zod';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { getOrchestrator, eventBus } from './orchestrator/index.js';
 import { getWalletManager } from './wallet/index.js';
 import { getSolanaClient } from './rpc/index.js';
@@ -1562,6 +1562,58 @@ app.post('/api/agents/:id/memory/clear', requireAdminAuth, (req: Request, res: R
   const agentId = req.params['id'] ?? '';
   getAgentMemory().clearAgent(agentId);
   res.json({ success: true, data: { agentId, cleared: true }, timestamp: new Date() });
+});
+
+// ============================================
+// TRANSACTION SIMULATION (dry-run)
+// ============================================
+
+// Simulate a serialized transaction without submitting it (dry-run).
+// Returns logs, units consumed, and any error — so callers can catch failures
+// before paying fees. Admin-gated because simulation reads chain state.
+const SimulateTransactionSchema = z.object({
+  transaction: z.string().min(10), // base64-encoded serialized transaction
+});
+
+app.post('/api/transactions/simulate', requireAdminAuth, async (req: Request, res: Response) => {
+  const validation = SimulateTransactionSchema.safeParse(req.body);
+  if (!validation.success) {
+    res.status(400).json({
+      success: false,
+      error: validation.error.message,
+      timestamp: new Date(),
+    });
+    return;
+  }
+
+  try {
+    const buf = Buffer.from(validation.data.transaction, 'base64');
+    let tx: Transaction | VersionedTransaction;
+    try {
+      tx = VersionedTransaction.deserialize(buf);
+    } catch {
+      tx = Transaction.from(buf);
+    }
+
+    const client = getSolanaClient();
+    const result = await client.simulateTransaction(tx);
+    if (!result.ok) {
+      res.status(400).json({
+        success: false,
+        error: result.error.message,
+        timestamp: new Date(),
+      });
+      return;
+    }
+
+    res.json({ success: true, data: result.value, timestamp: new Date() });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: sanitizeError(error),
+      timestamp: new Date(),
+    });
+  }
 });
 
 // ============================================

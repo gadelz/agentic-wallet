@@ -40,6 +40,17 @@ interface TransactionResult {
 }
 
 /**
+ * Detailed result of a transaction simulation (dry-run), returned to callers
+ * so they can inspect logs, compute units, and catch errors before paying fees.
+ */
+export interface SimulationReport {
+  readonly success: boolean;
+  readonly logs?: string[];
+  readonly unitsConsumed?: number;
+  readonly signature?: string;
+}
+
+/**
  * SolanaClient - Handles all blockchain interactions
  */
 export class SolanaClient {
@@ -51,7 +62,7 @@ export class SolanaClient {
     const config = getConfig();
 
     this.connection = new Connection(config.SOLANA_RPC_URL, {
-      commitment: 'confirmed',
+      commitment: config.RPC_COMMITMENT as Commitment,
       confirmTransactionInitialTimeout: config.CONFIRMATION_TIMEOUT_MS,
     });
 
@@ -348,23 +359,37 @@ export class SolanaClient {
 
   /**
    * Simulate a transaction before sending to catch errors before paying fees.
+   *
+   * Returns a detailed SimulationReport on success (logs, units consumed).
+   * Preserves fail-closed semantics: a simulated error returns `ok: false`,
+   * so pre-send safety checks in the orchestrator keep working.
    */
   async simulateTransaction(
     transaction:
       | import('@solana/web3.js').Transaction
       | import('@solana/web3.js').VersionedTransaction
-  ): Promise<Result<true, Error>> {
+  ): Promise<Result<SimulationReport, Error>> {
     try {
+      // Narrow the union so each overload is satisfied (Versioned vs legacy).
       let result;
       if ('version' in transaction) {
         result = await this.connection.simulateTransaction(transaction);
       } else {
         result = await this.connection.simulateTransaction(transaction);
       }
-      if (result.value.err) {
-        return failure(new Error(`Simulation failed: ${JSON.stringify(result.value.err)}`));
+      const value = result.value;
+
+      const report: SimulationReport = {
+        success: !value.err,
+        logs: value.logs ?? undefined,
+        unitsConsumed: value.unitsConsumed,
+        signature: typeof value === 'object' && 'signature' in value ? (value as { signature?: string }).signature : undefined,
+      };
+
+      if (value.err) {
+        return failure(new Error(`Simulation failed: ${JSON.stringify(value.err)}`));
       }
-      return success(true);
+      return success(report);
     } catch (error) {
       return failure(error instanceof Error ? error : new Error(String(error)));
     }
