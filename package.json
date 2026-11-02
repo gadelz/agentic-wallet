@@ -41,8 +41,8 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\""
   },
   "dependencies": {
-    "@solana/spl-token": "^0.4.0",
-    "@solana/web3.js": "^1.91.0",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^3.1.1",
     "bs58": "^5.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
