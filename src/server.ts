@@ -181,7 +181,7 @@ function stripDangerousKeys(obj: Record<string, unknown>): Record<string, unknow
   return cleaned;
 }
 
-const safeRecord = z.record(z.unknown()).transform(stripDangerousKeys);
+const safeRecord = z.record(z.string(), z.unknown()).transform(stripDangerousKeys);
 
 // Validation schemas
 const CreateAgentSchema = z.object({
@@ -1550,7 +1550,9 @@ app.post('/api/agents/:id/memory', requireAdminAuth, (req: Request, res: Respons
   });
   const validation = schema.safeParse(req.body);
   if (!validation.success) {
-    res.status(400).json({ success: false, error: validation.error.message, timestamp: new Date() });
+    res
+      .status(400)
+      .json({ success: false, error: validation.error.message, timestamp: new Date() });
     return;
   }
   getAgentMemory().set(agentId, validation.data.key, validation.data.value, validation.data.ttlMs);

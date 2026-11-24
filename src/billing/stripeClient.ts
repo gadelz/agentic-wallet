@@ -60,9 +60,7 @@ export class StripeClient {
    * Record usage against a subscription item (metered billing).
    * `quantity` is the incremental amount to bill (action=increment).
    */
-  async createUsageRecord(
-    input: UsageRecordInput
-  ): Promise<Result<UsageRecordResult, Error>> {
+  async createUsageRecord(input: UsageRecordInput): Promise<Result<UsageRecordResult, Error>> {
     const url = `${this.baseUrl}/subscription_items/${encodeURIComponent(
       input.subscriptionItemId
     )}/usage_record`;

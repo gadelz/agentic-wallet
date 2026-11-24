@@ -323,12 +323,9 @@ export class TenantRegistry {
       usage: {
         ...u,
         reported: {
-          agentCreated:
-            meter === 'agent_created' ? value : u.reported.agentCreated,
-          intentSubmitted:
-            meter === 'intent_submitted' ? value : u.reported.intentSubmitted,
-          apiRequest:
-            meter === 'api_request' ? value : u.reported.apiRequest,
+          agentCreated: meter === 'agent_created' ? value : u.reported.agentCreated,
+          intentSubmitted: meter === 'intent_submitted' ? value : u.reported.intentSubmitted,
+          apiRequest: meter === 'api_request' ? value : u.reported.apiRequest,
         },
       },
     });
