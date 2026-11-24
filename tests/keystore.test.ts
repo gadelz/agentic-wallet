@@ -29,9 +29,7 @@ describe('LocalEncryptedKeyStore', () => {
     expect(keyRef).toMatch(/^local:w1$/);
 
     const unwrapped = await ks.unwrap('w1', keyRef);
-    expect(Buffer.from(unwrapped).toString('hex')).toBe(
-      Buffer.from(kp.secretKey).toString('hex')
-    );
+    expect(Buffer.from(unwrapped).toString('hex')).toBe(Buffer.from(kp.secretKey).toString('hex'));
   });
 
   it('throws for an unknown wallet', async () => {
@@ -113,9 +111,7 @@ describe('VaultTransitKeyStore', () => {
     expect(keyRef).toMatch(/^vault:v1:/);
 
     const unwrapped = await ks.unwrap('wv1', keyRef);
-    expect(Buffer.from(unwrapped).toString('hex')).toBe(
-      Buffer.from(kp.secretKey).toString('hex')
-    );
+    expect(Buffer.from(unwrapped).toString('hex')).toBe(Buffer.from(kp.secretKey).toString('hex'));
   });
 
   it('throws a clear error when Vault returns an error status', async () => {

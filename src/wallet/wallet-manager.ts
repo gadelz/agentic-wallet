@@ -21,10 +21,7 @@ import {
   Intent,
 } from '../utils/types.js';
 import { generateSecureId } from '../utils/encryption.js';
-import {
-  ESTIMATED_SOL_TRANSFER_FEE,
-  ESTIMATED_TOKEN_TRANSFER_FEE,
-} from '../utils/config.js';
+import { ESTIMATED_SOL_TRANSFER_FEE, ESTIMATED_TOKEN_TRANSFER_FEE } from '../utils/config.js';
 import { createLogger } from '../utils/logger.js';
 import { saveState, loadState } from '../utils/store.js';
 import type { KeyStore } from './keystore/types.js';

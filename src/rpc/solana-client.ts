@@ -383,7 +383,10 @@ export class SolanaClient {
         success: !value.err,
         logs: value.logs ?? undefined,
         unitsConsumed: value.unitsConsumed,
-        signature: typeof value === 'object' && 'signature' in value ? (value as { signature?: string }).signature : undefined,
+        signature:
+          typeof value === 'object' && 'signature' in value
+            ? (value as { signature?: string }).signature
+            : undefined,
       };
 
       if (value.err) {
